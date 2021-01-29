@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" serverName="wangyining@10.103.238.64:22">
+    <serverData>
+      <paths name="wangyining@10.103.238.64:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/myproject/maml" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>

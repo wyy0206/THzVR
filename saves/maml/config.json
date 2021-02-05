@@ -1,5 +1,5 @@
 {
-  "env_name": "THzVR-v0",
+  "env_name": "2DNavigation-v0",
   "gamma": 0.99,
   "tau": 1.0,
   "first_order": false,

@@ -11,10 +11,10 @@ class THzVREnv(gym.Env):
     def __init__(self, task={}):
         super(THzVREnv, self).__init__()
 
-        # 6m * 6m 的房间，20个用户, 均匀分布7个VAP和7个SBSs
+        # 6m * 6m 的房间，5个用户, 均匀分布9个VAP和9个SBSs
         # shape=(4, USER_NUM)：[0]服务状态；[1]：是否为当前时刻新服务用户；[3][4]：用户位置x y坐标
 
-        self.USER_NUM = 20
+        self.USER_NUM = 12
         self.VAP_NUM = 7
         self.VAP_LOCs = [(1, 2), (1, 4), (3, 1), (3, 3), (3, 5), (5, 2), (5, 4)]
         self.SBS_NUM = 7
@@ -39,7 +39,7 @@ class THzVREnv(gym.Env):
 
 
         self._task = task
-        # 用户转移模式,任意设置
+        # 用户位置转移概率
         self._transition = task.get('transition', [6,1,1,1])
         # 初始状态
         self._state = np.zeros(4*self.USER_NUM, dtype=np.float32)
@@ -50,8 +50,10 @@ class THzVREnv(gym.Env):
         return [seed]
 
     def sample_tasks(self, num_tasks):
-        # 随机生成num_tasks个用户转移模式
-        transitions = self.np_random.randint(0, 10, size=(num_tasks, 4))
+        # transitions = self.np_random.randint(0, 10, size=(num_tasks, 4))
+        transition = np.array([6, 1, 1, 1])
+        zero_mat = np.zeros((num_tasks, 4))
+        transitions = transition + zero_mat
         tasks = [{'transition': transition} for transition in transitions]
         return tasks
 
@@ -94,7 +96,7 @@ class THzVREnv(gym.Env):
 
         # 定位状态
         state_p = np.ones(self.USER_NUM,dtype=int)
-        for k in range(3):
+        for k in self.LVAP:
             loc_k = self.VAP_LOCs[k]
             for u in range(self.USER_NUM):
                 loc_u = self._state[2:, u]
@@ -104,57 +106,38 @@ class THzVREnv(gym.Env):
                         # state_p1 VAP k, 用户m, 用户u 共线
                         state_p1= (loc_m[1] - loc_k[1]) * (loc_u[0] - loc_k[0]) - (loc_u[1] - loc_k[1]) * (loc_m[0] - loc_k[0]) == 0
                         # state_p2 用户m 在 VAP k 和 用户u 之间
-                        state_p2= np.linalg.norm(loc_k - loc_m) <= np.linalg.norm(loc_k - loc_u)
+                        state_p2= np.sqrt(np.sum((loc_k - loc_m) ** 2)) < np.sqrt(np.sum((loc_k - loc_u) ** 2))
+                        # np.linalg.norm(loc_k - loc_m) <= np.linalg.norm(loc_k - loc_u)
                         if state_p1 and state_p2:
                             state_p[u]=0
-
-                # 定位状态
-                state_p = np.ones(self.USER_NUM, dtype=int)
-                for k in self.LVAP:
-                    loc_k = self.VAP_LOCs[k]
-                    for u in range(self.USER_NUM):
-                        loc_u = self._state[2:, u]
-                        for m in range(self.USER_NUM):
-                            if m != u:
-                                loc_m = self._state[2:, m]
-                                # state_p1 VAP k, 用户m, 用户u 共线
-                                state_p1 = (loc_m[1] - loc_k[1]) * (loc_u[0] - loc_k[0]) - (loc_u[1] - loc_k[1]) * (
-                                            loc_m[0] - loc_k[0]) == 0
-                                # state_p2 用户m 在 VAP k 和 用户u 之间
-                                state_p2 = np.sqrt(np.sum((loc_k - loc_m) ** 2)) < np.sqrt(np.sum((loc_k - loc_u) ** 2))
-                                # np.linalg.norm(loc_k - loc_m) <= np.linalg.norm(loc_k - loc_u)
-                                if state_p1 and state_p2:
-                                    state_p[u] = 0
-                        if np.sqrt(np.sum((loc_k - loc_u) ** 2)) > 3:
-                            state_p[u] = 0
+                if np.sqrt(np.sum((loc_k - loc_u) ** 2)) > 3:
+                    state_p[u] = 0
 
         # 定位到的用户位置 [x,y, userid]
         user_loceds = []
         for u in range(self.USER_NUM):
-            if state_p[u]==1:
+            if state_p[u]==1 and self._state[0,u]==0:
                 user_loceds.append(np.array([self._state[2,u], self._state[3,u],u]))
         np.array(user_loceds)
 
 
         # 服务状态
-        state_h = np.zeros(self.USER_NUM, dtype=int)
+        state_h = np.zeros(self.USER_NUM,dtype=int)
         # 匈牙利算法求解user association
-        if len(user_loceds) != 0:
+        if len(user_loceds)!=0:
             profit_matrix = np.ones((len(user_loceds), self.SBS_NUM))
             for k in range(self.SBS_NUM):
                 loc_k = self.SBS_LOCs[k]
                 for u in range(len(user_loceds)):
                     loc_u = np.array([user_loceds[u][0], user_loceds[u][1]])
-                    # 是否遮挡
                     for m in range(len(user_loceds)):
                         if m != u:
                             loc_m = np.array([user_loceds[m][0], user_loceds[m][1]])
                             state_h1 = (loc_m[1] - loc_k[1]) * (loc_u[0] - loc_k[0]) - (loc_u[1] - loc_k[1]) * (
-                                    loc_m[0] - loc_k[0]) == 0
+                                        loc_m[0] - loc_k[0]) == 0
                             state_h2 = np.sqrt(np.sum((loc_k - loc_m) ** 2)) <= np.sqrt(np.sum((loc_k - loc_u) ** 2))
                             if state_h1 and state_h2:
                                 profit_matrix[u][k] = 0
-                    # 时延
                     if np.sqrt(np.sum((loc_k - loc_u) ** 2)) > 1.5:
                         profit_matrix[u][k] = 0
             hungarian = Hungarian()
@@ -170,7 +153,7 @@ class THzVREnv(gym.Env):
 
         # 服务状态
         state_wt = state_p * state_h
-        state_w = copy.deepcopy(self._state[0, :]).astype(int)
+        state_w = copy.deepcopy(self._state[0,:]).astype(int)
         self._state[0, :] = state_wt | state_w
         self._state[1, :] = state_w ^ (self._state[0, :].astype(int))
 

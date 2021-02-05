@@ -3,10 +3,8 @@ import time
 
 import numpy as np
 import tensorflow as tf
-import os
+# import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-# gpu_options = tf.compat.v1.GPUOptions(allow_growth=True)
-# sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
 
 from maml_rl.baselines import LinearFeatureBaseline
 from maml_rl.metalearners import MetaLearner
@@ -23,9 +21,6 @@ def total_rewards(episodes_rewards, aggregation=tf.reduce_mean):
 
 
 def main(args):
-    continuous_actions = (args.env_name in ['AntVel-v1', 'AntDir-v1',
-                                            'AntPos-v0', 'HalfCheetahVel-v1',
-                                            'HalfCheetahDir-v1', '2DNavigation-v0'])
 
     writer = tf.summary.create_file_writer('./logs/{0}'.format(args.output_folder))
 
@@ -43,20 +38,12 @@ def main(args):
 
     # Create policy for the given task
     with tf.name_scope('policy') as scope:
-        if continuous_actions:
-            policy = NormalMLPPolicy(
-                int(np.prod(sampler.envs.observation_space.shape)),
-                int(np.prod(sampler.envs.action_space.shape)),
-                hidden_sizes=(args.hidden_size,) * args.num_layers,
-                name=scope
-            )
-        else:
-            policy = CategoricalMLPPolicy(
-                int(np.prod(sampler.envs.observation_space.shape)),
-                sampler.envs.action_space.n,
-                hidden_sizes=(args.hidden_size,) * args.num_layers,
-                name=scope
-            )
+        policy = CategoricalMLPPolicy(
+            int(np.prod(sampler.envs.observation_space.shape)),
+            sampler.envs.action_space.n,
+            hidden_sizes=(args.hidden_size,) * args.num_layers,
+            name=scope
+        )
 
     baseline = LinearFeatureBaseline(int(np.prod(sampler.envs.observation_space.shape)))
 
@@ -101,13 +88,10 @@ def main(args):
             # Save policy network
             policy.save_weights(save_folder + f"/policy-{batch+1}", overwrite=True)
             baseline.save_weights(save_folder + f"/baseline-{batch + 1}", overwrite=True)
-            print(f"Policy saved at iteration {batch+1}")
-
-        if (batch+1) % 50 == 0:
             np.savetxt("dual12u400.txt", after_rewards, fmt="%f", delimiter=',')
             np.savetxt("dual12u400_time.txt", rewards_time, fmt="%f", delimiter=',')
+            print(f"Policy saved at iteration {batch+1}")
 
-    # np.savetxt("dual8u300.txt", after_rewards, fmt="%f", delimiter=',')
 
 
 if __name__ == '__main__':
@@ -120,7 +104,7 @@ if __name__ == '__main__':
 
     # General
     # THzVR-v0
-    parser.add_argument('--env-name', type=str,
+    parser.add_argument('--env-name', type=str, default='DualTHzVR-v0',
                         help='name of the environment')
     #0.95
     parser.add_argument('--gamma', type=float, default=0.9,

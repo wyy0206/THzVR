@@ -10,35 +10,37 @@ class THzVREnv(gym.Env):
     def __init__(self, task={}):
         super(THzVREnv, self).__init__()
 
-        # 6m * 6m * 3m 的房间，4个用户, 均匀分布7个VAP和7个SBSs
+        # 6m * 6m * 3m 的房间，4个用户, 均匀分布4个VAP和9个SBSs
         # shape=(5, 5)：[0]服务状态；[1]：是否为当前时刻新服务用户；[3][4][5]：用户位置x y z坐标
 
         # observation space
-        # self.observation_space = spaces.Box(
-        #     low=np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
-        #     high=np.array([[1, 1, 1, 1], [1, 1, 1, 1], [6, 6, 6, 6], [6, 6, 6, 6], [3, 3, 3, 3]]), dtype=np.float32)
-        self.USER_NUM = 4
+        self.USER_NUM = 6
         self.VAP_NUM = 7
-        self.VAP_LOCs = [(1, 2, 3), (1, 4, 3), (3, 1, 3), (3, 3,3), (3, 5,3), (5, 2,3), (5, 4,3)]
+        self.VAP_LOCs = [(1, 2), (1, 4), (3, 1), (3, 3), (3, 5), (5, 2), (5, 4)]
         self.SBS_NUM = 7
-        self.SBS_LOCs = [(1, 2,3), (1, 4,3), (3, 1,3), (3, 3,3), (3, 5,3), (5, 2,3), (5, 4,3)]
+        self.SBS_LOCs = [(1, 2), (1, 4), (3, 1), (3, 3), (3, 5), (5, 2), (5, 4)]
+
+        high = []
+        high.append([1 for i in range(2 * self.USER_NUM)])
+        high.append([6 for i in range(2 * self.USER_NUM)])
+        high = np.array(high)
 
         self.observation_space = spaces.Box(
-            low=np.zeros(5*self.USER_NUM,dtype=int),
-            high=np.array([1, 1, 1, 1, 1, 1, 1, 1, 6, 6, 6, 6, 6, 6, 6, 6, 3, 3, 3, 3]), dtype=np.float32)
+            low=np.zeros(4*self.USER_NUM,dtype=int),
+            high=high.flatten(), dtype=np.float32)
 
         # 选3个灯
         self.VAP = range(self.VAP_NUM)
         self.VAP_com = list(itertools.combinations(self.VAP, 3))
 
-        # 用户关联 asso[1]=[1, 2, 3, 4, 0, 0, 0, 0, 0], len(asso)=C(9,4)*(4!)=3024
+        # 用户关联 asso[1]=[1, 2, 3, 4, 0, 0, 0], len(asso)=C(7,4)*(4!)
         self.SBS = range(self.SBS_NUM)
         self.SBS_com = list(itertools.combinations(self.SBS, self.USER_NUM))
         self.user_permu = list(itertools.permutations(range(self.USER_NUM)))
         self.asso_com = []
         for i in self.user_permu:
             for j in self.SBS_com:
-                temp = np.zeros(9,dtype=int)
+                temp = np.zeros(7,dtype=int)
                 temp[np.array(j)] = np.array(i) + 1
                 self.asso_com.append(temp.tolist())
 
@@ -49,9 +51,9 @@ class THzVREnv(gym.Env):
 
         self._task = task
         # 用户位置转移概率
-        self._transition = task.get('transition', [0.25,0.25,0.25,0.25])
+        self._transition = task.get('transition', [6,1,1,1])
         # 初始状态
-        self._state = np.array([0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 2, 4, 2, 2, 4, 4, 2, 2, 2, 2], dtype=np.float32)
+        self._state = np.zeros(4 * self.USER_NUM, dtype=np.float32)
         self.seed()
 
     def seed(self, seed=None):
@@ -59,7 +61,10 @@ class THzVREnv(gym.Env):
         return [seed]
 
     def sample_tasks(self, num_tasks):
-        transitions = self.np_random.randint(0, 10, size=(num_tasks, 4))
+        # transitions = self.np_random.randint(0, 10, size=(num_tasks, 4))
+        transition = np.array([6, 1, 1, 1])
+        zero_mat = np.zeros((num_tasks, 4))
+        transitions = transition + zero_mat
         tasks = [{'transition': transition} for transition in transitions]
         return tasks
 
@@ -68,12 +73,12 @@ class THzVREnv(gym.Env):
         self._transition = task['transition']
 
     def reset(self, env=True):
-        self._state = np.array([0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 2, 4, 2, 2, 4, 4, 2, 2, 2, 2], dtype=np.float32)
+        self._state = np.zeros(4 * self.USER_NUM, dtype=np.float32)
         return self._state
 
     def step(self, action):
         assert self.action_space.contains(action), f"Action {action} not in the action space"
-        self._state = self._state.reshape(5, self.USER_NUM)
+        self._state = self._state.reshape(4, self.USER_NUM)
         # 对每个用户，前后左右随机选择一个方向 index=0，1，2，3
         for u in range(self.USER_NUM):
             start = 0
@@ -97,11 +102,28 @@ class THzVREnv(gym.Env):
 
         # selected VAP:[1,2,3]
         self.LVAP = self.VAP_com[int(action / len(self.asso_com))]
-        # 定位状态 传输状态
-        state_p = np.ones(self.USER_NUM,dtype=int)
-        state_h = np.zeros(self.USER_NUM,dtype=int)
+        # 定位状态
+        state_p = np.ones(self.USER_NUM, dtype=int)
+        for k in self.LVAP:
+            loc_k = self.VAP_LOCs[k]
+            for u in range(self.USER_NUM):
+                loc_u = self._state[2:, u]
+                for m in range(self.USER_NUM):
+                    if m != u:
+                        loc_m = self._state[2:, m]
+                        # state_p1 VAP k, 用户m, 用户u 共线
+                        state_p1 = (loc_m[1] - loc_k[1]) * (loc_u[0] - loc_k[0]) - (loc_u[1] - loc_k[1]) * (
+                                    loc_m[0] - loc_k[0]) == 0
+                        # state_p2 用户m 在 VAP k 和 用户u 之间
+                        state_p2 = np.sqrt(np.sum((loc_k - loc_m) ** 2)) < np.sqrt(np.sum((loc_k - loc_u) ** 2))
+                        # np.linalg.norm(loc_k - loc_m) <= np.linalg.norm(loc_k - loc_u)
+                        if state_p1 and state_p2:
+                            state_p[u] = 0
+                if np.sqrt(np.sum((loc_k - loc_u) ** 2)) > 3:
+                    state_p[u] = 0
 
-        # user association:[1,2,3,4,0,0,0,0,0]
+        #传输状态
+        state_h = np.zeros(self.USER_NUM,dtype=int)
         self.asso = self.asso_com[action % len(self.asso_com)]
         for i in range(self.SBS_NUM):
             if self.asso[i] != 0:
@@ -123,16 +145,3 @@ class THzVREnv(gym.Env):
         self._state = self._state.reshape(-1)
 
         return self._state, reward, done, self._task
-
-    # """随机变量的概率函数"""
-    # 传入数组为概率分布列表例如[10, 90]，返回值为下标索引，返回值返回0的概率为10%，返回1的概率为90%
-    # def random_index(self,rate):
-    #     # 参数rate为list<int>
-    #     start = 0
-    #     index = 0
-    #     randnum = random.randint(1, sum(rate))
-    #     for index, scope in enumerate(rate):
-    #         start += scope
-    #         if randnum <= start:
-    #             break
-    #     return index
